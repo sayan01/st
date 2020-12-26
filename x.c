@@ -5,6 +5,7 @@
 #include <locale.h>
 #include <signal.h>
 #include <sys/select.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 #include <libgen.h>
@@ -221,6 +222,7 @@ static void (*handler[LASTEvent])(XEvent *) = {
 };
 
 /* Globals */
+static int plumbsel;
 static DC dc;
 static XWindow xw;
 static XSelection xsel;
@@ -692,6 +694,37 @@ xsetsel(char *str)
 }
 
 void
+plumbinit()
+{
+	for(plumbsel = 0; plumb_cmd[plumbsel]; plumbsel++);
+}
+
+void
+plumb(char *sel) {
+	if (sel == NULL)
+		return;
+	char cwd[PATH_MAX];
+	pid_t child;
+	if (subprocwd(cwd) != 0)
+		return;
+
+	plumb_cmd[plumbsel] = sel;
+
+	switch(child = fork()) {
+		case -1:
+			return;
+		case 0:
+			if (chdir(cwd) != 0)
+				exit(1);
+			if (execvp(plumb_cmd[0], plumb_cmd) == -1)
+				exit(1);
+			exit(0);
+		default:
+			waitpid(child, NULL, 0);
+	}
+}
+
+void
 brelease(XEvent *e)
 {
 	if (IS_SET(MODE_MOUSE) && !(e->xbutton.state & forcemousemod)) {
@@ -703,6 +736,8 @@ brelease(XEvent *e)
 		return;
 	if (e->xbutton.button == Button1)
 		mousesel(e, 1);
+	else if (e->xbutton.button == Button3)
+		plumb(xsel.primary);
 }
 
 void
@@ -2191,6 +2226,7 @@ main(int argc, char *argv[])
 	} ARGEND;
 
 run:
+	plumbinit();
 	if (argc > 0) /* eat all remaining arguments */
 		opt_cmd = argv;
 
